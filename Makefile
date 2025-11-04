@@ -1,23 +1,16 @@
 # Makefile for EECS 348 Lab 10
-# Author: Shaan Bawa
-
-# Compiler and flags
+# Author: Shaan Bawa (fixed)
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Werror -o
-
-# Target executable name
+CXXFLAGS = -std=c++11 -Wall -Werror
 TARGET = calculator
-
-# Source file
 SRCS = main.cpp
 
-# Default rule: build the target
+.PHONY: all clean
+
 all: $(TARGET)
 
-# Rule to build the target
 $(TARGET): $(SRCS)
-	$(CXX) $(CXXFLAGS) $(TARGET) $(SRCS)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRCS)
 
-# Rule to clean up compiled files
 clean:
 	rm -f $(TARGET)

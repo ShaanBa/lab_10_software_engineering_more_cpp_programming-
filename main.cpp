@@ -1,331 +1,354 @@
 /*
- * EECS 348 Lab 10: String-Based Calculator
- * Author: Shaan Bawa
+ * EECS 348 Lab 10: String-Based Calculator (fixed)
+ * Author: Shaan Bawa (fixed version)
  *
  * This program reads pairs of numbers as strings from a file,
- * validates them, and performs string-based addition.
+ * validates them, and performs string-based addition without
+ * converting to built-in numeric types.
  */
 
 #include <iostream>
 #include <string>
 #include <fstream>
 #include <sstream>
-#include <cctype> // For isdigit()
-#include <algorithm> // For swap()
+#include <cctype>
+#include <algorithm>
 
 using namespace std;
 
+/* ----------------- Validator ----------------- */
 /**
  * @brief Checks if a string represents a valid double number.
  * Format: (+|-)A(.B)
- * - Must have at least one digit (A).
- * - If decimal point (.) exists, must have digits on *both* sides (A and B).
+ * - Optional leading '+' or '-'
+ * - At least one digit before decimal (A)
+ * - If decimal exists, at least one digit after decimal (B)
  */
 bool isValidDouble(const string& s) {
-    if (s.empty()) {
-        return false;
-    }
+    if (s.empty()) return false;
 
-    size_t i = 0;                      // use size_t to match s.length()
+    size_t i = 0;
     bool seenDecimal = false;
     int digitsBefore = 0;
     int digitsAfter = 0;
 
-    // 1. Check for optional sign
+    // optional sign
     if (s[0] == '+' || s[0] == '-') {
         i = 1;
     }
 
-    // If string is just "+" or "-", it's invalid
-    if (i == 1 && s.length() == 1) {
-        return false;
-    }
+    // string can't be only sign
+    if (i == 1 && s.length() == 1) return false;
 
-    // 2. Loop through the rest of the string
     for (; i < s.length(); ++i) {
         unsigned char ch = static_cast<unsigned char>(s[i]);
-        if (std::isdigit(ch)) {
-            if (seenDecimal) {
-                digitsAfter++;
-            } else {
-                digitsBefore++;
-            }
+        if (isdigit(ch)) {
+            if (seenDecimal) digitsAfter++;
+            else digitsBefore++;
         } else if (s[i] == '.') {
-            if (seenDecimal) {
-                return false; // Multiple decimal points
-            }
+            if (seenDecimal) return false; // multiple dots
             seenDecimal = true;
         } else {
-            return false; // Invalid character
+            return false; // invalid char
         }
     }
 
-    // 3. Final checks
     if (!seenDecimal) {
-        // No decimal, just need at least one digit (e.g., "123", "+1")
         return digitsBefore > 0;
     } else {
-        // Had a decimal, must have digits on both sides (e.g., "1.0", "-0.5")
-        // This rules out "5." and ".5"
+        // digit required on both sides of decimal
         return digitsBefore > 0 && digitsAfter > 0;
     }
 }
 
+/* ----------------- Helpers for signs and normalization ----------------- */
+
 /**
- * @brief Normalizes a number string:
- * - Removes leading zeros from integer part (e.g., "007.5" -> "7.5")
- * - Removes trailing zeros from decimal part (e.g., "7.500" -> "7.5")
- * - Removes decimal point if it becomes trailing (e.g., "7.0" -> "7")
- * - Handles negative signs and the zero case ("-0.0" -> "0")
+ * @brief Strip leading '+' if present. Leaves leading '-' intact.
  */
-string normalize(string s) {
-    string sign = "";
-    if (s[0] == '-') {
-        sign = "-";
-        s = s.substr(1);
-    }
-
-    string intPart, decPart;
-    size_t decPos = s.find('.');
-
-    if (decPos == string::npos) {
-        intPart = s;
-        decPart = "";
-    } else {
-        intPart = s.substr(0, decPos);
-        decPart = s.substr(decPos + 1);
-    }
-
-    // Normalize integer part (remove leading zeros)
-    size_t firstDigit = intPart.find_first_not_of('0');
-    if (firstDigit == string::npos) {
-        intPart = "0"; // String was "0", "00", etc.
-    } else {
-        intPart = intPart.substr(firstDigit); // "007" -> "7"
-    }
-
-    // Normalize decimal part (remove trailing zeros)
-    size_t lastDigit = decPart.find_last_not_of('0');
-    if (lastDigit == string::npos) {
-        decPart = ""; // String was ".0", ".00", etc.
-    } else {
-        decPart = decPart.substr(0, lastDigit + 1); // "500" -> "5"
-    }
-
-    // Reconstruct
-    string result;
-    if (decPart.empty()) {
-        result = intPart;
-    } else {
-        result = intPart + "." + decPart;
-    }
-
-    // Handle zero case (e.g., "-0.0" -> "0")
-    if (result == "0") {
-        return "0";
-    }
-
-    return sign + result;
+string stripPlus(const string& s) {
+    if (!s.empty() && s[0] == '+') return s.substr(1);
+    return s;
 }
 
 /**
- * @brief Aligns two positive number strings by padding with zeros.
- * (e.g., "10.5" and "1.005" -> "10.500" and "01.005")
+ * @brief Extract sign character. Returns '+' or '-'.
  */
-void alignNumbers(string& num1, string& num2) {
-    string intPart1, decPart1, intPart2, decPart2;
-    size_t decPos1 = num1.find('.');
-    size_t decPos2 = num2.find('.');
+char getSign(const string& s) {
+    if (!s.empty() && s[0] == '-') return '-';
+    return '+';
+}
 
-    intPart1 = (decPos1 == string::npos) ? num1 : num1.substr(0, decPos1);
-    decPart1 = (decPos1 == string::npos) ? "" : num1.substr(decPos1 + 1);
-    intPart2 = (decPos2 == string::npos) ? num2 : num2.substr(0, decPos2);
-    decPart2 = (decPos2 == string::npos) ? "" : num2.substr(decPos2 + 1);
+/**
+ * @brief Remove leading sign if present ('+' or '-'), returning magnitude only.
+ */
+string magnitudeOnly(const string& s) {
+    if (s.empty()) return s;
+    if (s[0] == '+' || s[0] == '-') return s.substr(1);
+    return s;
+}
 
-    // Pad integer parts with leading zeros
-    while (intPart1.length() < intPart2.length()) intPart1 = "0" + intPart1;
-    while (intPart2.length() < intPart1.length()) intPart2 = "0" + intPart2;
+/**
+ * @brief Normalize a number string that may include a sign.
+ * - Removes leading '+'
+ * - Removes leading zeros in integer part
+ * - Removes trailing zeros in decimal part
+ * - Removes decimal point if decimal part becomes empty
+ * - Converts any zero result (including "-0", "-0.0") to "0"
+ *
+ * Example: "+007.500" -> "7.5", "-0.000" -> "0", "-001.2300" -> "-1.23"
+ */
+string normalize(const string& raw) {
+    if (raw.empty()) return raw;
 
-    // Pad decimal parts with trailing zeros
-    while (decPart1.length() < decPart2.length()) decPart1 += "0";
-    while (decPart2.length() < decPart1.length()) decPart2 += "0";
+    // handle sign
+    char sign = getSign(raw);
+    string mag = magnitudeOnly(raw);
 
-    bool hasDecimal = (decPos1 != string::npos || decPos2 != string::npos || !decPart1.empty());
+    // split into integer and decimal parts
+    size_t dot = mag.find('.');
+    string intPart = (dot == string::npos) ? mag : mag.substr(0, dot);
+    string decPart = (dot == string::npos) ? "" : mag.substr(dot + 1);
 
-    if (hasDecimal) {
-        num1 = intPart1 + "." + decPart1;
-        num2 = intPart2 + "." + decPart2;
+    // remove leading zeros from integer part
+    size_t firstNonZero = intPart.find_first_not_of('0');
+    if (firstNonZero == string::npos) {
+        intPart = "0";
     } else {
-        num1 = intPart1;
-        num2 = intPart2;
+        intPart = intPart.substr(firstNonZero);
     }
-}
 
-/**
- * @brief Checks if positive number string num1 >= num2.
- */
-bool stringIsGreater(string num1, string num2) {
-    // Normalize before comparison
-    num1 = normalize(num1);
-    num2 = normalize(num2);
-
-    string intPart1, decPart1, intPart2, decPart2;
-    size_t decPos1 = num1.find('.');
-    size_t decPos2 = num2.find('.');
-
-    intPart1 = (decPos1 == string::npos) ? num1 : num1.substr(0, decPos1);
-    decPart1 = (decPos1 == string::npos) ? "" : num1.substr(decPos1 + 1);
-    intPart2 = (decPos2 == string::npos) ? num2 : num2.substr(0, decPos2);
-    decPart2 = (decPos2 == string::npos) ? "" : num2.substr(decPos2 + 1);
-
-    // 1. Compare integer part lengths
-    if (intPart1.length() > intPart2.length()) return true;
-    if (intPart1.length() < intPart2.length()) return false;
-
-    // 2. Compare integer parts directly
-    if (intPart1 > intPart2) return true;
-    if (intPart1 < intPart2) return false;
-
-    // 3. Integer parts are equal, compare decimal parts (must pad)
-    while (decPart1.length() < decPart2.length()) decPart1 += "0";
-    while (decPart2.length() < decPart1.length()) decPart2 += "0";
-
-    return decPart1 >= decPart2;
-}
-
-
-/**
- * @brief Adds two positive, aligned number strings.
- */
-string stringAddMag(string num1, string num2) {
-    alignNumbers(num1, num2);
-    string result = "";
-    int carry = 0;
-
-    for (int i = num1.length() - 1; i >= 0; i--) {
-        if (num1[i] == '.') {
-            result = "." + result;
-            continue;
+    // remove trailing zeros from decimal part
+    if (!decPart.empty()) {
+        size_t lastNonZero = decPart.find_last_not_of('0');
+        if (lastNonZero == string::npos) {
+            decPart = "";
+        } else {
+            decPart = decPart.substr(0, lastNonZero + 1);
         }
-
-        int sum = (num1[i] - '0') + (num2[i] - '0') + carry;
-        result = to_string(sum % 10) + result;
-        carry = sum / 10;
     }
 
-    if (carry > 0) {
-        result = to_string(carry) + result;
-    }
+    // reconstruct
+    string result = intPart;
+    if (!decPart.empty()) result += "." + decPart;
+
+    // zero canonicalization
+    if (result == "0") return "0";
+
+    if (sign == '-') return string("-") + result;
     return result;
 }
 
-/**
- * @brief Subtracts two positive, aligned number strings (num1 - num2).
- * Assumes num1 >= num2.
- */
-string stringSubtractMag(string num1, string num2) {
-    alignNumbers(num1, num2);
-    string result = "";
-    int borrow = 0;
+/* ----------------- Alignment and magnitude helpers ----------------- */
 
-    for (int i = num1.length() - 1; i >= 0; i--) {
-        if (num1[i] == '.') {
-            result = "." + result;
+/**
+ * @brief Given two magnitude strings (no sign), pad integer parts with leading zeros
+ * and decimal parts with trailing zeros so the two strings have same layout.
+ * Example: "10.5", "1.005" -> "10.500", "01.005"
+ *
+ * Both inputs are magnitudes (no '+' or '-' at front). Function modifies inputs in-place.
+ */
+void alignMagnitudes(string& a, string& b) {
+    // split
+    size_t da = a.find('.');
+    size_t db = b.find('.');
+
+    string intA = (da == string::npos) ? a : a.substr(0, da);
+    string decA = (da == string::npos) ? "" : a.substr(da + 1);
+    string intB = (db == string::npos) ? b : b.substr(0, db);
+    string decB = (db == string::npos) ? "" : b.substr(db + 1);
+
+    // pad integer parts
+    if (intA.length() < intB.length()) intA = string(intB.length() - intA.length(), '0') + intA;
+    if (intB.length() < intA.length()) intB = string(intA.length() - intB.length(), '0') + intB;
+
+    // pad decimal parts
+    if (decA.length() < decB.length()) decA += string(decB.length() - decA.length(), '0');
+    if (decB.length() < decA.length()) decB += string(decA.length() - decB.length(), '0');
+
+    bool hasDecimal = (!decA.empty() || !decB.empty());
+
+    if (hasDecimal) {
+        a = intA + "." + decA;
+        b = intB + "." + decB;
+    } else {
+        a = intA;
+        b = intB;
+    }
+}
+
+/**
+ * @brief Compare two positive magnitude strings (no sign). Returns true if a >= b.
+ * Uses normalize internally to ensure canonical forms.
+ */
+bool magnitudeGE(string a, string b) {
+    a = normalize(a);
+    b = normalize(b);
+
+    // remove any leading sign artifacts (normalize should not produce +)
+    a = magnitudeOnly(a);
+    b = magnitudeOnly(b);
+
+    // split int/dec
+    size_t da = a.find('.');
+    size_t db = b.find('.');
+
+    string intA = (da == string::npos) ? a : a.substr(0, da);
+    string decA = (da == string::npos) ? "" : a.substr(da + 1);
+    string intB = (db == string::npos) ? b : b.substr(0, db);
+    string decB = (db == string::npos) ? "" : b.substr(db + 1);
+
+    // compare integer length
+    if (intA.length() > intB.length()) return true;
+    if (intA.length() < intB.length()) return false;
+
+    // compare integer lexicographically
+    if (intA > intB) return true;
+    if (intA < intB) return false;
+
+    // pad decimals and compare
+    if (decA.length() < decB.length()) decA += string(decB.length() - decA.length(), '0');
+    if (decB.length() < decA.length()) decB += string(decA.length() - decB.length(), '0');
+
+    return decA >= decB;
+}
+
+/* ----------------- Magnitude addition/subtraction ----------------- */
+
+/**
+ * @brief Add two positive magnitudes (strings without sign). Assumes they may be unaligned.
+ * Returns the raw magnitude string (may have leading digits, decimal point). Caller should normalize result.
+ */
+string addMagnitudes(string a, string b) {
+    alignMagnitudes(a, b);
+    string res = "";
+    int carry = 0;
+
+    for (int i = (int)a.length() - 1; i >= 0; --i) {
+        if (a[i] == '.') {
+            res.insert(res.begin(), '.');
             continue;
         }
+        int da = a[i] - '0';
+        int db = b[i] - '0';
+        int sum = da + db + carry;
+        res.insert(res.begin(), char('0' + (sum % 10)));
+        carry = sum / 10;
+    }
 
-        int diff = (num1[i] - '0') - (num2[i] - '0') - borrow;
+    if (carry) res.insert(res.begin(), char('0' + carry));
+    return res;
+}
+
+/**
+ * @brief Subtract two positive magnitudes (a - b). Precondition: a >= b.
+ * Assumes they may be unaligned. Returns raw magnitude string; caller should normalize.
+ */
+string subtractMagnitudes(string a, string b) {
+    alignMagnitudes(a, b);
+    string res = "";
+    int borrow = 0;
+
+    for (int i = (int)a.length() - 1; i >= 0; --i) {
+        if (a[i] == '.') {
+            res.insert(res.begin(), '.');
+            continue;
+        }
+        int da = a[i] - '0';
+        int db = b[i] - '0';
+        int diff = da - db - borrow;
         if (diff < 0) {
             diff += 10;
             borrow = 1;
         } else {
             borrow = 0;
         }
-        result = to_string(diff) + result;
+        res.insert(res.begin(), char('0' + diff));
     }
-    return result;
+
+    // At this point, res may have leading zeros; normalize will fix.
+    return res;
 }
 
+/* ----------------- Public add (handles signs) ----------------- */
 
 /**
- * @brief Main dispatcher function for addition. Handles signs.
+ * @brief Add two signed number strings (may include leading '+' or '-').
+ * Returns normalized signed result string.
  */
-string stringAdd(string num1, string num2) {
-    string sign1 = (num1[0] == '-') ? "-" : "+";
-    string mag1 = (sign1 == "-" || num1[0] == '+') ? num1.substr(1) : num1;
+string stringAdd(const string& raw1, const string& raw2) {
+    // canonicalize inputs: remove leading '+' if present
+    string s1 = stripPlus(raw1);
+    string s2 = stripPlus(raw2);
 
-    string sign2 = (num2[0] == '-') ? "-" : "+";
-    string mag2 = (sign2 == "-" || num2[0] == '+') ? num2.substr(1) : num2;
+    char sign1 = getSign(s1);
+    char sign2 = getSign(s2);
 
-    string result;
+    string mag1 = magnitudeOnly(s1);
+    string mag2 = magnitudeOnly(s2);
+
+    string resultMag;
+    char resultSign = '+';
 
     if (sign1 == sign2) {
-        // Both positive or both negative (e.g., 5 + 2 or -5 + -2)
-        result = stringAddMag(mag1, mag2);
-        if (sign1 == "-") {
-            result = "-" + result;
-        }
+        // same sign: add magnitudes, keep sign (unless result is zero)
+        resultMag = addMagnitudes(mag1, mag2);
+        resultSign = sign1;
     } else {
-        // Mixed signs (e.g., 5 + -2 or -5 + 2)
-        if (stringIsGreater(mag1, mag2)) {
-            // e.g., 5 + (-2) -> 5 - 2 = 3
-            // e.g., -5 + 2 -> -(5 - 2) = -3
-            result = stringSubtractMag(mag1, mag2);
-            if (sign1 == "-") {
-                result = "-" + result;
-            }
+        // different signs: subtract smaller magnitude from larger magnitude
+        if (magnitudeGE(mag1, mag2)) {
+            resultMag = subtractMagnitudes(mag1, mag2);
+            resultSign = sign1; // sign of the larger magnitude (mag1 >= mag2)
         } else {
-            // e.g., 2 + (-5) -> -(5 - 2) = -3
-            // e.g., -2 + 5 -> 5 - 2 = 3
-            result = stringSubtractMag(mag2, mag1);
-            if (sign2 == "-") {
-                result = "-" + result;
-            }
+            resultMag = subtractMagnitudes(mag2, mag1);
+            resultSign = sign2;
         }
     }
 
-    return normalize(result);
+    string normalized = normalize((resultSign == '-') ? "-" + resultMag : resultMag);
+    return normalized;
 }
 
-/**
- * @brief Main function to read file and process lines.
- */
+/* ----------------- Main: file I/O and processing ----------------- */
+
 int main(int argc, char* argv[]) {
-    // 1. Check for correct command-line arguments
     if (argc != 2) {
         cerr << "Usage: " << argv[0] << " <input_file>" << endl;
         return 1;
     }
 
-    // 2. Open the input file
-    ifstream file(argv[1]);
-    if (!file.is_open()) {
+    ifstream in(argv[1]);
+    if (!in.is_open()) {
         cerr << "Error: Could not open file " << argv[1] << endl;
         return 1;
     }
 
     string line;
-    // 3. Read file line by line
-    while (getline(file, line)) {
-        stringstream ss(line);
-        string num1, num2;
+    while (getline(in, line)) {
+        // keep original line for error message
+        string original = line;
 
-        // 4. Parse the two numbers from the line
-        if (!(ss >> num1 >> num2)) {
-            // Skip empty lines or lines with parsing errors
+        // skip empty lines or lines that are whitespace
+        bool allws = true;
+        for (char c : line) if (!isspace(static_cast<unsigned char>(c))) { allws = false; break; }
+        if (allws) continue;
+
+        stringstream ss(line);
+        string a, b;
+        if (!(ss >> a >> b)) {
+            // not two tokens -> treat as invalid
+            cout << "Invalid input on line: " << original << endl;
             continue;
         }
 
-        // 5. Validate both numbers
-        if (isValidDouble(num1) && isValidDouble(num2)) {
-            // 6. If valid, perform addition and print result
-            cout << stringAdd(num1, num2) << endl;
-        } else {
-            // 7. If invalid, print error message
-            cout << "Invalid input on line: " << line << endl;
+        if (!isValidDouble(a) || !isValidDouble(b)) {
+            cout << "Invalid input on line: " << original << endl;
+            continue;
         }
+
+        cout << stringAdd(a, b) << endl;
     }
 
-    file.close();
+    in.close();
     return 0;
 }
