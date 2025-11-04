@@ -26,7 +26,7 @@ bool isValidDouble(const string& s) {
         return false;
     }
 
-    int i = 0;
+    size_t i = 0;                      // use size_t to match s.length()
     bool seenDecimal = false;
     int digitsBefore = 0;
     int digitsAfter = 0;
@@ -43,7 +43,8 @@ bool isValidDouble(const string& s) {
 
     // 2. Loop through the rest of the string
     for (; i < s.length(); ++i) {
-        if (isdigit(s[i])) {
+        unsigned char ch = static_cast<unsigned char>(s[i]);
+        if (std::isdigit(ch)) {
             if (seenDecimal) {
                 digitsAfter++;
             } else {
